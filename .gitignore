@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller build outputs
+build/
+dist/
+*.spec
+
+# Archives and packages
+*.zip
+*.tar.gz
+*.7z
+
+# Local configs and logs
+crash_log.txt
+*.log
+settings.json
+*.tmp
+
+# Executables in root/bin
+bin/
+*.exe
+
+# VS Code / IDE
+.vscode/
+.idea/
