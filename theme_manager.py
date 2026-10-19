@@ -21,9 +21,15 @@ def get_asset_path(filename: str) -> str:
 def get_settings_file_path() -> str:
     """
     Returns writable path for settings.json.
-    Prefers local directory (portable mode), falls back to %APPDATA% if restricted.
+    Prefers directory next to executable or script (portable mode),
+    falls back to %APPDATA% if restricted.
     """
-    local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+    if getattr(sys, "frozen", False):
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    local_path = os.path.join(base_dir, "settings.json")
     try:
         # Test if local folder is writable
         test_file = local_path + ".tmp"
@@ -38,13 +44,10 @@ def get_settings_file_path() -> str:
         return os.path.join(conf_dir, "settings.json")
 
 def get_default_download_folder() -> str:
-    """Dynamic resolution of default download folder."""
+    """Dynamic resolution of default download folder across any Windows machine."""
     user_downloder = os.path.join(os.path.expanduser("~"), "Downloads", "downloder")
     if os.path.exists(user_downloder):
         return user_downloder
-    known = r"C:\Users\Death_God\Downloads\downloder"
-    if os.path.exists(known):
-        return known
     try:
         os.makedirs(user_downloder, exist_ok=True)
         return user_downloder
@@ -57,7 +60,7 @@ class ThemeManager:
     THEMES = {
         "the_strain": {
             "name": "💀 The Strain (Crimson)",
-            "image": get_asset_path("theme_the_strain.jpg"),
+            "image_file": "theme_the_strain.jpg",
             "primary": "#e60026",
             "primary_hover": "#b8001f",
             "accent": "#ff2a4b",
@@ -71,7 +74,7 @@ class ThemeManager:
         },
         "gothic_rose": {
             "name": "🌹 Gothic Rose (Dark Veil)",
-            "image": get_asset_path("theme_gothic_rose.jpg"),
+            "image_file": "theme_gothic_rose.jpg",
             "primary": "#e01a4f",
             "primary_hover": "#b0123c",
             "accent": "#ff4d79",
@@ -85,7 +88,7 @@ class ThemeManager:
         },
         "obsidian": {
             "name": "🌑 Obsidian Dark (Stealth)",
-            "image": None,
+            "image_file": None,
             "primary": "#e60026",
             "primary_hover": "#b8001f",
             "accent": "#ff3b5c",
@@ -152,7 +155,8 @@ class ThemeManager:
             return self._image_cache[cache_key]
 
         theme = self.get_current_theme()
-        img_path = theme["image"]
+        img_name = theme.get("image_file")
+        img_path = get_asset_path(img_name) if img_name else ""
 
         if not img_path or not os.path.isfile(img_path):
             solid = Image.new("RGB", (width, height), color=(12, 12, 16))

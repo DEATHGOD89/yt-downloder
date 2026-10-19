@@ -10,15 +10,11 @@ from typing import Callable, Optional, Dict, Any
 def get_default_download_dir() -> str:
     """
     Dynamically resolves the default download directory.
-    Works seamlessly across any Windows user profile or future updates.
+    Works seamlessly across any Windows user profile or future updates without hardcoded names.
     """
     user_downloads_downloder = os.path.join(os.path.expanduser("~"), "Downloads", "downloder")
     if os.path.exists(user_downloads_downloder):
         return user_downloads_downloder
-
-    known_fixed = r"C:\Users\Death_God\Downloads\downloder"
-    if os.path.exists(known_fixed):
-        return known_fixed
 
     try:
         os.makedirs(user_downloads_downloder, exist_ok=True)
@@ -50,7 +46,6 @@ class DownloaderBackend:
         """
         candidate_dirs = [
             os.path.join(os.path.expanduser("~"), "Downloads", "downloder"),
-            r"C:\Users\Death_God\Downloads\downloder",
             os.path.dirname(os.path.abspath(__file__)),
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin"),
             os.path.dirname(sys.executable),
@@ -100,13 +95,10 @@ class DownloaderBackend:
         """
         Updates yt-dlp to the latest version in the background.
         Ensures the software never breaks when YouTube changes their video algorithms!
+        Works seamlessly for both standalone binary (yt-dlp -U) and Python module (pip install -U yt-dlp).
         """
         def worker():
-            if not self.ytdlp_path or not os.path.isfile(self.ytdlp_path):
-                on_done(False, "yt-dlp binary not found for self-update.")
-                return
-
-            on_log(f"[*] Checking for engine updates using: {self.ytdlp_path} -U\n")
+            on_log("[*] Checking for engine updates in silent background process...\n")
             try:
                 startupinfo = None
                 creationflags = 0
@@ -116,8 +108,15 @@ class DownloaderBackend:
                     startupinfo.wShowWindow = subprocess.SW_HIDE
                     creationflags = subprocess.CREATE_NO_WINDOW
 
+                if self.ytdlp_path and os.path.isfile(self.ytdlp_path):
+                    cmd = [self.ytdlp_path, "-U"]
+                    on_log(f"[*] Running binary updater: {self.ytdlp_path} -U\n")
+                else:
+                    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"]
+                    on_log(f"[*] Running pip module updater: {sys.executable} -m pip install --upgrade yt-dlp\n")
+
                 proc = subprocess.Popen(
-                    [self.ytdlp_path, "-U"],
+                    cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
@@ -132,7 +131,10 @@ class DownloaderBackend:
                     if clean:
                         output_lines.append(clean)
                         on_log(clean)
-                proc.stdout.close()
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
                 proc.wait()
 
                 summary = output_lines[-1] if output_lines else "Update complete."
@@ -154,6 +156,7 @@ class DownloaderBackend:
             'no_warnings': True,
             'extract_flat': False,
             'playlist_items': '1',     # Only extract single target video
+            'noplaylist': True,        # Prevent loading entire playlists
             'no_cache_dir': True,       # Privacy: no cached tracking data
             'windows_filenames': True,  # Safe Windows naming
         }
@@ -357,14 +360,22 @@ class DownloaderBackend:
                 if "Destination:" in clean_line:
                     dest_cand = clean_line.split("Destination:")[-1].strip()
                     if dest_cand and not dest_cand.endswith((".part", ".ytdl")):
-                        destination_file = dest_cand
+                        destination_file = dest_cand.strip('\'"')
                     if last_stream_pct >= 90.0:
                         stream_index += 1
                         last_stream_pct = 0.0
                 elif "[Merger] Merging formats into" in clean_line:
                     m = re.search(r'Merging formats into\s+"?([^"]+)"?', clean_line)
                     if m:
-                        destination_file = m.group(1)
+                        destination_file = m.group(1).strip('\'"')
+                elif "has already been downloaded" in clean_line:
+                    m = re.search(r'\[download\]\s+(.+?)\s+has already been downloaded', clean_line)
+                    if m:
+                        destination_file = m.group(1).strip('\'"')
+                elif "[ExtractAudio] Destination:" in clean_line:
+                    dest_cand = clean_line.split("[ExtractAudio] Destination:")[-1].strip()
+                    if dest_cand:
+                        destination_file = dest_cand.strip('\'"')
 
                 # Parse progress with throttling (max once per 75ms) to keep UI 60 FPS smooth
                 progress_info = self._parse_progress_line(clean_line, stream_index, quality_mode)
@@ -378,7 +389,10 @@ class DownloaderBackend:
                         last_progress_time = now
                         on_progress(progress_info)
 
-            process.stdout.close()
+            try:
+                process.stdout.close()
+            except Exception:
+                pass
             ret_code = process.wait()
 
             with self._lock:

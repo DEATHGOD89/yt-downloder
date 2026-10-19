@@ -10,8 +10,14 @@ from PIL import Image, ImageTk
 import requests
 from io import BytesIO
 
-# Enable per-monitor DPI awareness on Windows for razor-sharp rendering on all 4K/2K/1080p monitors
+# Enable per-monitor DPI awareness and register Windows AppUserModelID for crisp icons & taskbar grouping
 if sys.platform == "win32":
+    try:
+        import ctypes
+        myappid = "deathgod.ytdownloader.ultra.v2"
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+    except Exception:
+        pass
     try:
         import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -36,11 +42,18 @@ class YouTubeDownloaderApp(ctk.CTk):
         self.geometry("1060x820")
         self.minsize(940, 680)
 
-        # Set application icon safely
-        icon_path = get_asset_path("app_icon.ico")
-        if icon_path and os.path.isfile(icon_path):
+        # Set application icon safely for titlebar, alt-tab, and taskbar
+        icon_ico = get_asset_path("app_icon.ico")
+        icon_png = get_asset_path("app_icon.png")
+        if icon_ico and os.path.isfile(icon_ico):
             try:
-                self.iconbitmap(icon_path)
+                self.iconbitmap(icon_ico)
+            except Exception:
+                pass
+        if icon_png and os.path.isfile(icon_png):
+            try:
+                self._app_icon_img = ImageTk.PhotoImage(file=icon_png)
+                self.iconphoto(False, self._app_icon_img)
             except Exception:
                 pass
 
@@ -77,6 +90,34 @@ class YouTubeDownloaderApp(ctk.CTk):
         # Keyboard shortcuts
         self.bind("<Control-v>", lambda e: self._paste_clipboard())
         self.bind("<Control-V>", lambda e: self._paste_clipboard())
+
+        # Self-healing shortcut synchronization (verifies icons if app moved)
+        self._sync_system_shortcuts()
+
+    def _sync_system_shortcuts(self):
+        """Silently verifies and repairs desktop & start menu shortcuts if the user moved the folder."""
+        if sys.platform != "win32":
+            return
+        def worker():
+            try:
+                candidates = [
+                    os.path.join(os.path.dirname(os.path.abspath(__file__)), "Create_Desktop_Shortcut.ps1"),
+                    os.path.join(os.path.dirname(sys.executable), "Create_Desktop_Shortcut.ps1"),
+                    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Create_Desktop_Shortcut.ps1"),
+                    os.path.join(os.path.dirname(sys.executable), "..", "Create_Desktop_Shortcut.ps1"),
+                ]
+                for ps in candidates:
+                    if os.path.isfile(ps):
+                        subprocess.run(
+                            ["powershell", "-ExecutionPolicy", "Bypass", "-File", ps],
+                            creationflags=subprocess.CREATE_NO_WINDOW,
+                            capture_output=True,
+                            timeout=10
+                        )
+                        break
+            except Exception:
+                pass
+        threading.Thread(target=worker, daemon=True).start()
 
     def _center_window(self):
         self.update_idletasks()
@@ -851,10 +892,12 @@ class YouTubeDownloaderApp(ctk.CTk):
                 text_color="#60a5fa"
             )
 
+        self._current_thumb = thumb_img
         if thumb_img:
             self.thumb_label.configure(image=thumb_img)
 
-        self.preview_card.pack(fill="x", padx=25, pady=6, after=self.url_entry.master.master)
+        if not self.preview_card.winfo_ismapped():
+            self.preview_card.pack(fill="x", padx=25, pady=6, after=self.url_entry.master.master)
 
     def _on_info_fetch_error(self, err_text):
         if not self.winfo_exists():
